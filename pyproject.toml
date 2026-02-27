@@ -16,12 +16,8 @@ dependencies = [
     "pynput~=1.8.1",
     "rumps~=0.4.0",
     "numba>=0.61.2",
-    "pyperclip~=1.9.0",
-    "python-dotenv~=1.1.1",
-    "mlx-lm",
     # macOS-only Cocoa bridge
     'pyobjc-framework-Cocoa~=11.1; platform_system == "Darwin"',
-    "pyobjc-framework-cocoa~=11.1",
 ]
 
 [build-system]

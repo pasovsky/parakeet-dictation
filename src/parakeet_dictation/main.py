@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os
-import io
+import subprocess
 import time
 import tempfile
 import threading
@@ -9,7 +9,7 @@ import wave
 import numpy as np
 import rumps
 from pynput import keyboard
-from pynput.keyboard import Controller
+from pynput.keyboard import Controller, Key
 from parakeet_mlx import from_pretrained
 import signal
 from .logger_config import setup_logging
@@ -31,7 +31,7 @@ else:
 # Set up a global flag for handling SIGINT
 exit_flag = False
 
-def signal_handler(signum, frame):  # FIXED: accept (signum, frame)
+def signal_handler(signum, frame):
     """Global signal handler for graceful shutdown"""
     global exit_flag
     logger.info("Shutdown signal received, exiting gracefully...")
@@ -51,6 +51,7 @@ class WhisperDictationApp(rumps.App):
         self.recording = False
         self.audio = pyaudio.PyAudio()
         self.frames = []
+        self._frames_lock = threading.Lock()
         self.keyboard_controller = Controller()
 
         # Initialize Parakeet model (async)
@@ -76,7 +77,7 @@ class WhisperDictationApp(rumps.App):
         logger.info("Press and HOLD Ctrl + Alt + A to record. Release to transcribe.")
         logger.info(f"Press {self.toggle_key} to toggle recording on/off.")
         logger.info("Press Ctrl+C to quit the application.")
-        logger.info("If hotkeys don’t fire: System Settings → Privacy & Security → Accessibility + Input Monitoring")
+        logger.info("If hotkeys don't fire: System Settings → Privacy & Security → Accessibility + Input Monitoring")
 
         self.watchdog = threading.Thread(target=self.check_exit_flag, daemon=True)
         self.watchdog.start()
@@ -111,19 +112,25 @@ class WhisperDictationApp(rumps.App):
             model_id = "mlx-community/parakeet-tdt-0.6b-v2"
             self.model = from_pretrained(model_id)
 
-            # Warm-up: run a tiny silent clip once to trigger JIT/graph compilation & caches
+            # Warm-up: run a tiny silent clip to trigger JIT/graph compilation & caches
             try:
                 sr = 16000
                 silence = (np.zeros(int(0.3 * sr)).astype(np.int16)).tobytes()
-                buf = io.BytesIO()
-                with wave.open(buf, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)  # int16
-                    wf.setframerate(sr)
-                    wf.writeframes(silence)
-                buf.seek(0)
-                _ = self.model.transcribe(buf)
-                logger.info("Parakeet warm-up done")
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                    warmup_path = f.name
+                try:
+                    with wave.open(warmup_path, 'wb') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)  # int16
+                        wf.setframerate(sr)
+                        wf.writeframes(silence)
+                    _ = self.model.transcribe(warmup_path)
+                    logger.info("Parakeet warm-up done")
+                finally:
+                    try:
+                        os.unlink(warmup_path)
+                    except Exception:
+                        pass
             except Exception as we:
                 logger.debug(f"Warm-up skipped/fallback due to: {we}")
 
@@ -170,9 +177,8 @@ class WhisperDictationApp(rumps.App):
                 pass
 
         def on_key_release(key):
-            from pynput import keyboard as kb
-            if key in (kb.Key.ctrl, kb.Key.ctrl_l, kb.Key.ctrl_r,
-                       kb.Key.alt, kb.Key.alt_l, kb.Key.alt_r):
+            if key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r,
+                       keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r):
                 if self.is_recording_with_hotkey and self.recording:
                     logger.info("STOPPING recording via Ctrl/Alt release")
                     self.is_recording_with_hotkey = False
@@ -210,7 +216,8 @@ class WhisperDictationApp(rumps.App):
             self.status_item.title = "Status: Waiting for model to load"
             return
 
-        self.frames = []
+        with self._frames_lock:
+            self.frames = []
         self.recording = True
         self.title = "🎙️ (Recording)"
         self.status_item.title = "Status: Recording..."
@@ -222,7 +229,6 @@ class WhisperDictationApp(rumps.App):
 
     def _record_audio_callback_loop(self):
         def _cb(in_data, frame_count, time_info, status_flags):
-            # in_data is bytes for paInt16 mono frames
             if self.recording:
                 self.frames.append(in_data)
                 return (None, pyaudio.paContinue)
@@ -258,7 +264,9 @@ class WhisperDictationApp(rumps.App):
             return
         self.recording = False
         if hasattr(self, 'recording_thread'):
-            self.recording_thread.join()
+            self.recording_thread.join(timeout=3.0)
+            if self.recording_thread.is_alive():
+                logger.warning("Recording thread did not stop in time")
 
         self.title = "🎙️ (Transcribing)"
         self.status_item.title = "Status: Transcribing..."
@@ -276,27 +284,18 @@ class WhisperDictationApp(rumps.App):
         finally:
             self.title = "🎙️"
 
-    def _write_wav_to_buffer(self, frames_bytes: bytes) -> io.BytesIO:
-        """Create an in-memory WAV buffer from PCM frames."""
-        buf = io.BytesIO()
-        with wave.open(buf, 'wb') as wf:
-            wf.setnchannels(self.channels)
-            wf.setsampwidth(self.audio.get_sample_size(self.format))
-            wf.setframerate(self.rate)
-            wf.writeframes(frames_bytes)
-        buf.seek(0)
-        return buf
-
     def transcribe_audio(self):
-        if not self.frames:
+        with self._frames_lock:
+            frames = list(self.frames)
+
+        if not frames:
             self.title = "🎙️"
             self.status_item.title = "Status: No audio recorded"
             logger.warning("No audio recorded")
             return
 
-        pcm = b''.join(self.frames)
+        pcm = b''.join(frames)
 
-        # Always use temp file for transcription (model does not support BytesIO)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_filename = temp_file.name
         try:
@@ -322,23 +321,38 @@ class WhisperDictationApp(rumps.App):
             self.status_item.title = "Status: No speech detected"
 
     def insert_text(self, text):
-        # Minimal logging in hot path
-        self.keyboard_controller.type(text)
-
-    def handle_shutdown(self, _signal, _frame):
-        pass
+        # Use clipboard paste (Cmd+V) for atomic, fast text insertion
+        try:
+            old_clipboard = subprocess.run(
+                ['pbpaste'], capture_output=True, text=True, timeout=2
+            ).stdout
+        except Exception:
+            old_clipboard = ""
+        try:
+            subprocess.run(['pbcopy'], input=text, text=True, timeout=2)
+            with self.keyboard_controller.pressed(Key.cmd):
+                self.keyboard_controller.press('v')
+                self.keyboard_controller.release('v')
+            time.sleep(0.05)
+            # Restore previous clipboard
+            subprocess.run(['pbcopy'], input=old_clipboard, text=True, timeout=2)
+        except Exception as e:
+            logger.error(f"Clipboard paste failed, falling back to type(): {e}")
+            self.keyboard_controller.type(text)
 
 def main():
     parser = argparse.ArgumentParser(
         description="Parakeet Dictation: Local speech-to-text for macOS.\n\nINSTRUCTIONS:\n\n- After launching, look for the 🎙️ icon in your macOS menu bar.\n- Press and HOLD Ctrl + Alt + A to start dictation. Release to transcribe.\n- Press § to toggle recording on/off.\n- If hotkeys do not work, check System Settings → Privacy & Security → Accessibility and Input Monitoring.\n- To quit, use the menu bar or press Ctrl+C in the terminal.\n- For more info, see: https://github.com/osadalakmal/parakeet-dictation\n\nOPTIONS:"
     )
-    parser.add_argument('--version', action='version', version='parakeet-dictation 0.1.0')
-    args = parser.parse_args()
+    parser.add_argument('--version', action='version', version='parakeet-dictation 0.1.6')
+    parser.parse_args()
 
+    app = WhisperDictationApp()
     try:
-        WhisperDictationApp().run()
+        app.run()
     except KeyboardInterrupt:
         logger.info("\nKeyboard interrupt received, exiting...")
+        app.cleanup()
         os._exit(0)
 
 if __name__ == "__main__":

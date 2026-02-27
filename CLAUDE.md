@@ -50,7 +50,7 @@ System deps: `brew install portaudio ffmpeg`
   - **Hold-to-record**: Ctrl+Alt+A via `GlobalHotKeys` chord detection + `Listener` for modifier release.
   - **Toggle-to-record**: § key press detected via the same `Listener`'s `on_press` handler.
 - **Audio pipeline**: PyAudio callback stream → 16kHz mono int16 PCM, 512-byte chunks → temp WAV file → Parakeet transcription.
-- **Text insertion**: Transcribed text is typed at the cursor via `pynput.keyboard.Controller`.
+- **Text insertion**: Transcribed text is pasted at the cursor via clipboard (Cmd+V), with fallback to `pynput.keyboard.Controller.type()`.
 - `logger_config.py` — colored logging with `PARAKEET_LOG` env var control, `NO_COLOR` support.
 
 ## Key Constraints
@@ -71,7 +71,6 @@ System deps: `brew install portaudio ffmpeg`
 ```
 src/parakeet_dictation/
 ├── main.py            # App entry point and WhisperDictationApp class
-├── text_selection.py  # macOS text selection/replacement via clipboard (currently unused)
 └── logger_config.py   # Colored logging setup
 ```
 
