@@ -1,7 +1,6 @@
 # Parakeet Dictation (macOS)
 
-Local, fast, privacy-friendly dictation for macOS using NVIDIA Parakeet (MLX on Apple Silicon) with a push-to-talk hotkey.  
-Bonus: speak commands to **rewrite selected text** via Qwen.
+Local, fast, privacy-friendly dictation for macOS using NVIDIA Parakeet (MLX on Apple Silicon) with push-to-talk hotkeys.
 
 ---
 
@@ -14,8 +13,8 @@ Bonus: speak commands to **rewrite selected text** via Qwen.
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-  - [Push-to-talk dictation](#push-to-talk-dictation)
-  - [Voice-driven text editing (Claude via Bedrock)](#voice-driven-text-editing-claude-via-bedrock)
+  - [Hold-to-record (Ctrl+Alt+A)](#hold-to-record-ctrlalta)
+  - [Toggle-to-record (§)](#toggle-to-record-)
   - [Menu bar controls](#menu-bar-controls)
 - [Permissions (macOS)](#permissions-macos)
 - [Run in the background](#run-in-the-background)
@@ -34,17 +33,17 @@ Parakeet Dictation gives you **on-device** speech-to-text on macOS with a **sing
 
 - **Private**: Audio is processed locally on your Mac.
 - **Fast**: Parakeet models are optimized and run great on Apple Silicon via MLX.
-- **Practical**: Dictate into *any* app, or select text and **say how to transform it** (“make this more professional”, “translate to Spanish”, etc.)-the app rewrites it via AWS Bedrock and pastes it in place.
+- **Practical**: Dictate into *any* app with two hotkey modes — hold-to-record or toggle-to-record.
 
 ---
 
 ## Features
 
 - 🖥️ **Menu bar** app (stays out of your way)
-- 🎙️ **Push-to-talk**: Press the **Globe / Fn** key to start recording, press again to transcribe & paste
+- 🎙️ **Hold-to-record**: Hold **Ctrl+Alt+A** to record, release to transcribe & paste
+- 🔁 **Toggle-to-record**: Press **§** to start recording, press again to stop & transcribe
 - ⚡ **Local ASR** with **NVIDIA Parakeet** (Apple Silicon via MLX)
 - ⌨️ **Auto-paste at cursor** in the foreground app
-- ✨ **Voice-driven text editing** (optional): when text is selected, your speech is treated as an instruction and the selection is replaced with the result (via AWS Bedrock → Claude)
 - ✅ Clear **recording status** via the menu bar icon
 - 🧰 Simple **background mode** (no UI) for power users
 
@@ -89,23 +88,18 @@ uv add -r requirements.txt
 
 ## Usage
 
-### Push-to-talk dictation
+### Hold-to-record (Ctrl+Alt+A)
 
 1. Launch the app (see Development or Background sections below).
-2. Press the **Ctrl+Alt+A** (🌐) / Function key to start recording.
+2. Press and **hold** **Ctrl+Alt+A** to start recording.
 3. Speak normally.
-4. Release the keys again to stop. The app will transcribe and paste the text at your current cursor position.
+4. **Release** the keys to stop. The app will transcribe and paste the text at your current cursor position.
 
-### Voice-driven text editing (Qwen via MLX)
+### Toggle-to-record (§)
 
-1. Select text in any app.
-2. Press the Globe / Fn key and speak an instruction, e.g.:
-  - “Fix the grammar”
-  - “Summarize this”
-  - “Translate to Spanish”
-3. Press the key again to stop. The selected text will be replaced with the edited version.
-
-When no text is selected, your speech is treated as dictation and the text is inserted normally.
+1. Press the **§** key once to start recording.
+2. Speak normally.
+3. Press **§** again to stop. The app will transcribe and paste the text at your current cursor position.
 
 ### Menu bar controls
 
@@ -158,7 +152,6 @@ PYTHONPATH=src PARAKEET_LOG=debug python -m parakeet_dictation.main
 - Hotkey via `pynput`
 - Audio capture via `pyaudio`
 - ASR via `parakeet-mlx`
-- AI powered edits via Qwen
 
 ---
 
